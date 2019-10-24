@@ -252,6 +252,8 @@ impl sudo::Trait for Runtime {
 
 impl nfts::Trait for Runtime {
 	type Event = Event;
+	// type NFTIndex = primitives::U256;
+	type NFTIndex = u128;
 }
 
 construct_runtime!(
