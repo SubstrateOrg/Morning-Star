@@ -141,14 +141,20 @@ impl<T: Trait> Module<T> {
 
         Self::supply_decrease()?;
         <TokenUri<T>>::remove(token_id);
-        // clear approval here, to do...
-        // Self::_clear_approval(token_id)?;
+        
+        Self::_clear_approval(token_id)?;
 
         <OwnedTokensCount<T>>::insert(&owner, new_balance_of);
         <TokenOwner<T>>::remove(token_id);
 
         Nonce::mutate(|n| *n += 1);
         Self::deposit_event(RawEvent::Transfer(Some(owner), None, token_id));
+
+        Ok(())
+    }
+
+    fn _clear_approval(token_id: T::NFTIndex) -> Result{
+        <TokenApprovals<T>>::remove(token_id);
 
         Ok(())
     }
