@@ -96,6 +96,7 @@ impl<T: Trait> Module<T> {
         // deposit event
         Self::deposit_event(RawEvent::ApprovalForAll(sender, to, approved));
         
+        // Done
         Ok(())
     }
 
