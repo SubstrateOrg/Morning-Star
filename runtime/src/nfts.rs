@@ -83,6 +83,19 @@ impl<T: Trait> Module<T> {
     Return:         Result    执行结果
     *************************************************/
     fn set_approval_for_all(origin: T::AccountId, to: T::AccountId, approved: bool) -> Result {
+        
+        // check message sender validation
+        let sender = ensure_signed(origin)?;
+
+        // check msg sender 
+        ensure!(to!=sender,"You can not set approval for yourself!");
+
+        // Set approved state
+        <OperatorApprovals<T>>::insert((sender.clone(), to.clone()), approved);
+
+        // deposit event
+        Self::deposit_event(RawEvent::ApprovalForAll(sender, to, approved));
+        
         Ok(())
     }
 
