@@ -1,8 +1,7 @@
-
 use sr_primitives::traits::{SimpleArithmetic, Bounded, CheckedAdd, CheckedSub, Member};
 use support::{
-        decl_module, decl_storage, decl_event, ensure, StorageValue, StorageMap,
-        Parameter, dispatch::Result
+    decl_module, decl_storage, decl_event, ensure, StorageValue, StorageMap,
+    Parameter, dispatch::Result,
 };
 use system::ensure_signed;
 
@@ -16,102 +15,146 @@ use support::dispatch::Vec;
 
 /// The module's configuration trait.
 pub trait Trait: system::Trait {
-	/// The overarching event type.
-	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
-	type NFTIndex: Parameter + Member + SimpleArithmetic + Bounded + Default + Copy;
-
+    /// The overarching event type.
+    type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
+    type NFTIndex: Parameter + Member + SimpleArithmetic + Bounded + Default + Copy;
 }
 
 
 impl<T: Trait> Module<T> {
+    /*************************************************
+    Function:       // transfer_from转账
+    Description:    // 函数功能、性能等的描述
+    Input:
+                    from  发送代币的用户ID
+                    to    接收代币的用户ID
+                    token_id NFT代币的下标
+                    data     发送函数的附加数据
+    Output:
+    Return:           Result    执行结构
 
-	/************************************************* 
-	Function:       // transfer_from转账 
-	Description:    // 函数功能、性能等的描述 
-	Input:           
-					from  发送代币的用户ID
-					to    接收代币的用户ID
-					token_id NFT代币的下标
-					data     发送函数的附加数据
-	Output:           
-	Return:           Result    执行结构
+    *************************************************/
+    fn transfer_from(from: T::AccountId, to: T::AccountId, token_id: T::NFTIndex, data: Vec<u8>) -> Result {
+        let owner = match Self::owner_of(token_id) {
+            Some(c) => c,
+            None => return Err("No owner for this token"),
+        };
 
-	*************************************************/ 
-    fn transfer_from( from: T::AccountId, to: T::AccountId, token_id: T::NFTIndex, data: Vec<u8>) -> Result{
-		Ok(())
-	}
-	
-	/************************************************* 
-	Function:       // approve设置普通授权 
-	Description:    // 普通授权，是指针对单个代币转账权限的授权，只能同时存在一个，当拥有权限变更时，会清0
-	Input:          
-					origin  设置授权用户ID
-					to      接收授权用户ID
-					token_id NFT代币的下标					  
-	Output:           
-	Return:         Result    执行结果
-	*************************************************/ 
-	fn approve(origin: T::AccountId, to: T::AccountId, token_id: T::NFTIndex) -> Result{
-		Ok(())
-	}
-	
-	/************************************************* 
-	Function:       // set_approval_for_all设置高级授权
-	Description:    // 是指地址对地址的授权，被授权者可以操作授权者的所有代币，包括改变普通的授权。可以同时授权多个地址
-	Input:          
-					origin  设置授权用户ID
-					to      接收授权用户ID
-					approved 设置授权标识,true为允许					  
-	Output:           
-	Return:         Result    执行结果
-	*************************************************/ 
-    fn set_approval_for_all(origin: T::AccountId, to: T::AccountId, approved: bool) -> Result{
-		Ok(())
-	}
-	
+        ensure!(owner == from, "'from' account does not own this token");
 
-	/************************************************* 
-	Function:       // issue_with_uri 发行代币
-	Description:     
-	Input:          					  
-					to      接收代币用户ID
-					uri     代币附加信息uri地址					  
-	Output:           
-	Return:         Result    执行结果
-	*************************************************/ 
-    fn _issue_with_uri(who: &T::AccountId,  uri: Vec<u8>) ->Result{
+        let balance_of_from = Self::balance_of(&from);
+        let balance_of_to = Self::balance_of(&to);
 
+        let new_balance_of_from = balance_of_from.checked_sub(&1.into())
+            .ok_or("Transfer causes underflow of 'from' token balance")?;
+        let new_balance_of_to = balance_of_to.checked_add(&1.into())
+            .ok_or("Transfer causes overflow of 'to' token balance")?;
+
+        <OwnedTokensCount<T>>::insert(&from, new_balance_of_from);
+        <OwnedTokensCount<T>>::insert(&to, new_balance_of_to);
+        <TokenOwner<T>>::insert(&token_id, &to);
+
+        Self::deposit_event(RawEvent::Transfer(Some(from), Some(to), token_id));
+        Ok(())
+    }
+
+    /*************************************************
+    Function:       // approve设置普通授权
+    Description:    // 普通授权，是指针对单个代币转账权限的授权，只能同时存在一个，当拥有权限变更时，会清0
+    Input:
+                    origin  设置授权用户ID
+                    to      接收授权用户ID
+                    token_id NFT代币的下标
+    Output:
+    Return:         Result    执行结果
+    *************************************************/
+    fn approve(origin: T::AccountId, to: T::AccountId, token_id: T::NFTIndex) -> Result {
+        
+        //Get the Owner of the tokenId
+        let  owner_of_token_id = <TokenOwner<T>>::get(token_id);
+        // check msg sender 
+        ensure!(owner_of_token_id!= Some(origin.clone()),"You can not approve the token,Because You did not own it!");
+
+        // check msg sender 
+        ensure!(to!= origin,"You can not set approval for yourself!");
+
+        // Set approved state
+        <OperatorApprovals<T>>::insert((origin.clone(), to.clone()), true);
+
+        // deposit event
+        Self::deposit_event(RawEvent::Approval(origin, to, token_id));
+        
+        // Done
+        Ok(())
+    }
+
+    /*************************************************
+    Function:       // set_approval_for_all设置高级授权
+    Description:    // 是指地址对地址的授权，被授权者可以操作授权者的所有代币，包括改变普通的授权。可以同时授权多个地址
+    Input:
+                    origin  设置授权用户ID
+                    to      接收授权用户ID
+                    approved 设置授权标识,true为允许
+    Output:
+    Return:         Result    执行结果
+    *************************************************/
+    fn set_approval_for_all(origin: T::AccountId, to: T::AccountId, approved: bool) -> Result {
+        
+        // check msg sender 
+        ensure!(to!=origin,"You can not set approval for yourself!");
+
+        // Set approved state
+        <OperatorApprovals<T>>::insert((origin.clone(), to.clone()), approved);
+
+        // deposit event
+        Self::deposit_event(RawEvent::ApprovalForAll(origin, to, approved));
+        
+        // Done
+        Ok(())
+    }
+
+
+    /*************************************************
+    Function:       // issue_with_uri 发行代币
+    Description:
+    Input:
+                    to      接收代币用户ID
+                    uri     代币附加信息uri地址
+    Output:
+    Return:         Result    执行结果
+    *************************************************/
+    fn _issue_with_uri(who: &T::AccountId, uri: Vec<u8>) -> Result {
         let token_id = Self::total_supply();
 
-		ensure!(!<TokenOwner<T>>::exists(token_id), "Token hash already exists");
-		let balance_of = Self::balance_of(who);
+        ensure!(!<TokenOwner<T>>::exists(token_id), "Token hash already exists");
+        let balance_of = Self::balance_of(who);
 
         let new_balance_of = match balance_of.checked_add(&1.into()) {
             Some(c) => c,
             None => return Err("Overflow adding a new token to account balance"),
         };
 
-		Self::supply_increase()?;
-		<TokenUri<T>>::insert(token_id, uri);
-		
+        Self::supply_increase()?;
+        <TokenUri<T>>::insert(token_id, uri);
+
         <TokenOwner<T>>::insert(token_id, who);
         <OwnedTokensCount<T>>::insert(who, new_balance_of);
-		Nonce::mutate(|n| *n += 1);
+        Nonce::mutate(|n| *n += 1);
         Self::deposit_event(RawEvent::Transfer(None, Some(who.clone()), token_id));
-		
-		Ok(())
-	}
 
-	/************************************************* 
-	Function:       // burn销毁代币
-	Description:     
-	Input:          					  
-					Index  NFT代币的下标
-	Output:           
-	Return:         Result    执行结果
-	*************************************************/ 
-    fn _burn(token_id: T::NFTIndex) -> Result{
-		let owner = match Self::owner_of(token_id) {
+        Ok(())
+    }
+
+    /*************************************************
+    Function:       // burn销毁代币
+    Description:
+    Input:
+                    Index  NFT代币的下标
+    Output:
+    Return:         Result    执行结果
+    *************************************************/
+    fn _burn(token_id: T::NFTIndex) -> Result {
+        let owner = match Self::owner_of(token_id) {
             Some(c) => c,
             None => return Err("No owner for this token"),
         };
@@ -122,38 +165,43 @@ impl<T: Trait> Module<T> {
             Some(c) => c,
             None => return Err("Underflow subtracting a token to account balance"),
         };
-		
-		Self::supply_decrease()?;
-		<TokenUri<T>>::remove(token_id);
-		// clear approval here, to do...
-        // Self::_clear_approval(token_id)?;
+
+        Self::supply_decrease()?;
+        <TokenUri<T>>::remove(token_id);
+        
+        Self::_clear_approval(token_id)?;
 
         <OwnedTokensCount<T>>::insert(&owner, new_balance_of);
         <TokenOwner<T>>::remove(token_id);
-		
-		Nonce::mutate(|n| *n += 1);
+
+        Nonce::mutate(|n| *n += 1);
         Self::deposit_event(RawEvent::Transfer(Some(owner), None, token_id));
 
-		Ok(())
-	}
+        Ok(())
+    }
 
-	// below is helper functions 
-	fn supply_increase()  -> Result{
-		let total_supply = Self::total_supply();
+    fn _clear_approval(token_id: T::NFTIndex) -> Result{
+        <TokenApprovals<T>>::remove(token_id);
+
+        Ok(())
+    }
+
+    // below is helper functions
+    fn supply_increase() -> Result {
+        let total_supply = Self::total_supply();
 
         // Should never fail since overflow on user balance is checked before this
         let new_total_supply = match total_supply.checked_add(&1.into()) {
-            Some (c) => c,
+            Some(c) => c,
             None => return Err("Overflow when adding new token to total supply"),
         };
 
-		<TotalSupply<T>>::put(new_total_supply);
+        <TotalSupply<T>>::put(new_total_supply);
 
         Ok(())
-
-	}
-	fn supply_decrease()  -> Result{
-		let total_supply = Self::total_supply();
+    }
+    fn supply_decrease() -> Result {
+        let total_supply = Self::total_supply();
 
         // Should never fail because balance of underflow is checked before this
         let new_total_supply = match total_supply.checked_sub(&1.into()) {
@@ -164,8 +212,7 @@ impl<T: Trait> Module<T> {
         <TotalSupply<T>>::put(new_total_supply);
 
         Ok(())
-	}
-
+    }
 }
 
 decl_storage! {
