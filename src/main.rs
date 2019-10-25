@@ -15,9 +15,9 @@ fn main() {
 		name: "Substrate Node",
 		commit: env!("VERGEN_SHA_SHORT"),
 		version: env!("CARGO_PKG_VERSION"),
-		executable_name: "substrate-kitties",
+		executable_name: "substrate-nfts",
 		author: "Bryan Chen",
-		description: "substrate-kitties",
+		description: "substrate-nfts",
 		support_url: "support.anonymous.an",
 	};
 
