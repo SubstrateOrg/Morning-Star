@@ -69,6 +69,22 @@ impl<T: Trait> Module<T> {
     Return:         Result    执行结果
     *************************************************/
     fn approve(origin: T::AccountId, to: T::AccountId, token_id: T::NFTIndex) -> Result {
+        
+        //Get the Owner of the tokenId
+        let  owner_of_token_id = <TokenOwner<T>>::get(token_id);
+        // check msg sender 
+        ensure!(owner_of_token_id!= Some(origin.clone()),"You can not approve the token,Because You did not own it!");
+
+        // check msg sender 
+        ensure!(to!= origin,"You can not set approval for yourself!");
+
+        // Set approved state
+        <OperatorApprovals<T>>::insert((origin.clone(), to.clone()), true);
+
+        // deposit event
+        Self::deposit_event(RawEvent::Approval(origin, to, token_id));
+        
+        // Done
         Ok(())
     }
 
@@ -84,17 +100,14 @@ impl<T: Trait> Module<T> {
     *************************************************/
     fn set_approval_for_all(origin: T::AccountId, to: T::AccountId, approved: bool) -> Result {
         
-        // check message sender validation
-        let sender = ensure_signed(origin)?;
-
         // check msg sender 
-        ensure!(to!=sender,"You can not set approval for yourself!");
+        ensure!(to!=origin,"You can not set approval for yourself!");
 
         // Set approved state
-        <OperatorApprovals<T>>::insert((sender.clone(), to.clone()), approved);
+        <OperatorApprovals<T>>::insert((origin.clone(), to.clone()), approved);
 
         // deposit event
-        Self::deposit_event(RawEvent::ApprovalForAll(sender, to, approved));
+        Self::deposit_event(RawEvent::ApprovalForAll(origin, to, approved));
         
         // Done
         Ok(())
