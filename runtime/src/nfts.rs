@@ -68,7 +68,7 @@ impl<T: Trait> Module<T> {
     Output:
     Return:         Result    执行结果
     *************************************************/
-    fn approve(origin: T::AccountId, to: T::AccountId, token_id: T::NFTIndex) -> Result {
+    fn _approve(origin: T::AccountId, to: T::AccountId, token_id: T::NFTIndex) -> Result {
         
         //Get the Owner of the tokenId
         let  owner_of_token_id = <TokenOwner<T>>::get(token_id);
@@ -98,7 +98,7 @@ impl<T: Trait> Module<T> {
     Output:
     Return:         Result    执行结果
     *************************************************/
-    fn set_approval_for_all(origin: T::AccountId, to: T::AccountId, approved: bool) -> Result {
+    fn _set_approval_for_all(origin: T::AccountId, to: T::AccountId, approved: bool) -> Result {
         
         // check msg sender 
         ensure!(to!=origin,"You can not set approval for yourself!");
@@ -248,10 +248,18 @@ decl_module! {
 			let sender = ensure_signed(origin)?;
 			Self::_issue_with_uri(&sender, uri.clone())
 		}
-		 pub fn burn(origin, token_id:T::NFTIndex) -> Result{ 
+		pub fn burn(origin, token_id:T::NFTIndex) -> Result{ 
 			let sender = ensure_signed(origin)?;
 			Self::_burn(token_id)
-		 }
+		}
+        pub fn approve(origin, to: T::AccountId, token_id: T::NFTIndex) -> Result{
+            let sender = ensure_signed(origin)?;
+            Self::_approve(sender, to, token_id)
+        }
+        fn set_approval_for_all(origin, to: T::AccountId, approved: bool) -> Result {
+            let sender = ensure_signed(origin)?;
+            Self::_set_approval_for_all(sender, to, approved)
+        }
     }
 }
 
@@ -315,6 +323,7 @@ mod tests {
             type NFTIndex = u128;
             type Event = ();
     }
+    type TestModule = Module<Test>;
     // This function basically just builds a genesis storage key/value store according to
     // our desired mockup.
     fn new_test_ext() -> runtime_io::TestExternalities<Blake2Hasher> {
@@ -334,6 +343,17 @@ mod tests {
     #[test]
     fn test_approve() {
         with_externalities(&mut new_test_ext(), || {
+            let alice = 0;
+            let bob = 1;
+            let new_tk_id = TestModule::total_supply();
+            TestModule::issue_with_uri(Origin::signed(alice),b"https://this_is_a_test.com".to_vec());
+            assert_eq!(TestModule::balance_of(&alice), 1);
+            // TestModule::approve(Origin::signed(alice), alice, new_tk_id);
+            // assert_eq!(TestModule::get_approved(&new_tk_id), Some(alice));
+            assert_eq!(TestModule::total_supply(), 1);
+            TestModule::approve(Origin::signed(alice), bob, new_tk_id);
+            assert_eq!(TestModule::get_approved(&new_tk_id), Some(bob));
+
         });
     }
     #[test]
@@ -344,6 +364,14 @@ mod tests {
     #[test]
     fn test_set_approval_for_all() {
         with_externalities(&mut new_test_ext(), || {
+            let alice = 0;
+            let bob = 1;
+            // let new_tk_id = TestModule::total_supply();
+            // TestModule::issue_with_uri(Origin::signed(alice),b"https://this_is_a_test.com".to_vec());
+            // assert_eq!(TestModule::balance_of(&alice), 1);
+            // assert_eq!(TestModule::total_supply(), 1);
+            TestModule::set_approval_for_all(Origin::signed(alice), bob, true);
+            assert_eq!(TestModule::is_approved_for_all((alice,bob)), true);
         });
     }
     #[test]
