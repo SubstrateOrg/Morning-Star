@@ -1,5 +1,5 @@
 use primitives::{Pair, Public};
-use substrate_kitties_runtime::{
+use substrate_nfts_runtime::{
 	AccountId, BabeConfig, BalancesConfig, GenesisConfig, GrandpaConfig,
 	SudoConfig, IndicesConfig, SystemConfig, WASM_BINARY, 
 };
