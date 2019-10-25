@@ -9,7 +9,7 @@ use system::ensure_signed;
 // use codec::{Encode, Decode};
 // use runtime_io::blake2_128;
 // use system::ensure_signed;
-// use rstd::result;
+use rstd::result;
 use support::dispatch::Vec;
 // use codec::alloc::string::String;
 
@@ -20,8 +20,82 @@ pub trait Trait: system::Trait {
     type NFTIndex: Parameter + Member + SimpleArithmetic + Bounded + Default + Copy;
 }
 
+pub trait NFTS<AccountId, NFTIndex> {
+    /*************************************************
+    Function:       // transfer_from转账
+    Description:    // 函数功能、性能等的描述
+    Input:
+                    from  发送代币的用户ID
+                    to    接收代币的用户ID
+                    token_id NFT代币的下标
+                    data     发送函数的附加数据
+    Output:
+    Return:           Result    执行结构
 
-impl<T: Trait> Module<T> {
+    *************************************************/
+    fn transfer_from(from: AccountId, to: AccountId, token_id: NFTIndex, data: Vec<u8>) -> result::Result<(), &'static str>;
+
+    /*************************************************
+    Function:       // approve设置普通授权
+    Description:    // 普通授权，是指针对单个代币转账权限的授权，只能同时存在一个，当拥有权限变更时，会清0
+    Input:
+                    origin  设置授权用户ID
+                    to      接收授权用户ID
+                    token_id NFT代币的下标
+    Output:
+    Return:         Result    执行结果
+    *************************************************/
+    fn _approve(origin: AccountId, to: AccountId, token_id: NFTIndex) -> result::Result<(), &'static str>;
+
+
+    /*************************************************
+    Function:       // set_approval_for_all设置高级授权
+    Description:    // 是指地址对地址的授权，被授权者可以操作授权者的所有代币，包括改变普通的授权。可以同时授权多个地址
+    Input:
+                    origin  设置授权用户ID
+                    to      接收授权用户ID
+                    approved 设置授权标识,true为允许
+    Output:
+    Return:         Result    执行结果
+    *************************************************/
+    fn _set_approval_for_all(origin: AccountId, to: AccountId, approved: bool) -> result::Result<(), &'static str>;
+
+
+    
+    /*************************************************
+    Function:       // issue_with_uri 发行代币
+    Description:
+    Input:
+                    to      接收代币用户ID
+                    uri     代币附加信息uri地址
+    Output:
+    Return:         Result    执行结果
+    *************************************************/
+    fn _issue_with_uri(who: &AccountId, uri: Vec<u8>) -> result::Result<(), &'static str>;
+
+
+    /*************************************************
+    Function:       // burn销毁代币
+    Description:
+    Input:
+                    Index  NFT代币的下标
+    Output:
+    Return:         Result    执行结果
+    *************************************************/
+    fn _burn(token_id: NFTIndex) -> result::Result<(), &'static str>;
+
+
+    fn _clear_approval(token_id: NFTIndex) -> result::Result<(), &'static str>;
+
+    fn supply_increase() -> result::Result<(), &'static str>;
+
+    fn supply_decrease() -> result::Result<(), &'static str>;
+
+}
+
+
+
+impl<T: Trait> NFTS<T::AccountId, T::NFTIndex> for Module<T> {
     /*************************************************
     Function:       // transfer_from转账
     Description:    // 函数功能、性能等的描述
@@ -53,6 +127,7 @@ impl<T: Trait> Module<T> {
         <OwnedTokensCount<T>>::insert(&from, new_balance_of_from);
         <OwnedTokensCount<T>>::insert(&to, new_balance_of_to);
         <TokenOwner<T>>::insert(&token_id, &to);
+        Self::_clear_approval(token_id)?;
 
         Self::deposit_event(RawEvent::Transfer(Some(from), Some(to), token_id));
         Ok(())
