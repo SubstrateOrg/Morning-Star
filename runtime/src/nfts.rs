@@ -84,7 +84,6 @@ pub trait NFTS<AccountId, NFTIndex> {
     *************************************************/
     fn _burn(token_id: NFTIndex) -> result::Result<(), &'static str>;
 
-
     fn _clear_approval(token_id: NFTIndex) -> result::Result<(), &'static str>;
 
     fn supply_increase() -> result::Result<(), &'static str>;
@@ -302,12 +301,9 @@ decl_storage! {
 		OperatorApprovals get(is_approved_for_all): map (T::AccountId, T::AccountId) => bool;
 		//当前的代币总量
 		TotalSupply get(total_supply): T::NFTIndex;
-
 		// token id => token uri
 		// TokenUri get(token_uri): map T::NFTIndex => Option<Vec<u8>>;
 		TokenUri get(token_uri): map T::NFTIndex => Vec<u8>;
-
-
 		// Not a part of the ERC721 specification, but recommended to add.
 		Nonce: u64;
 

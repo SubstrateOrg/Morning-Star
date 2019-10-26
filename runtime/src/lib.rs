@@ -63,6 +63,11 @@ pub type DigestItem = generic::DigestItem<Hash>;
 
 mod nfts;
 
+/// Used for the module kitties in `./kitties.rs`
+mod kitties;
+
+mod linked_item;
+
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
 /// of data like extrinsics, allowing for them to continue syncing the network through upgrades
@@ -256,6 +261,12 @@ impl nfts::Trait for Runtime {
 	type NFTIndex = u128;
 }
 
+impl kitties::Trait for Runtime {
+	type Event = Event;
+	type KittyIndex = u32;
+	type Currency = Balances;
+}
+
 construct_runtime!(
 	pub enum Runtime where
 		Block = Block,
@@ -271,6 +282,8 @@ construct_runtime!(
 		Sudo: sudo,
 		// Substrate NFTs module
 		NFTs: nfts::{Module, Storage, Call, Event<T>},
+		// Substrate Kitties module
+		Kitties: kitties::{Module, Storage, Call, Event<T>},
 	}
 );
 
