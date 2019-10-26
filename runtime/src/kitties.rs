@@ -7,26 +7,24 @@ use codec::{Encode, Decode};
 use runtime_io::blake2_128;
 use system::ensure_signed;
 use rstd::result;
-//use crate::linked_item::{LinkedList, LinkedItem};
+use crate::linked_item::{LinkedList, LinkedItem};
 use crate::nfts::NFTS;
-use support::dispatch::Vec;
 
 pub trait Trait: system::Trait {
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 	type KittyIndex: Parameter + Member + SimpleArithmetic + Bounded + Default + Copy;
 	type Currency: Currency<Self::AccountId>;
-	type NFTIndex: Parameter + Member + SimpleArithmetic + Bounded + Default + Copy;
 }
 
 type BalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::Balance;
 
 #[derive(Encode, Decode)]
 pub struct Kitty<T: Trait>{
-	//pub price : T::Balance, 
+	pub price : T::Balance, 
 }
 
-//type KittyLinkedItem<T> = LinkedItem<<T as Trait>::KittyIndex>;
-//type OwnedKittiesList<T> = LinkedList<OwnedKitties<T>, <T as system::Trait>::AccountId, <T as Trait>::KittyIndex>;
+type KittyLinkedItem<T> = LinkedItem<<T as Trait>::KittyIndex>;
+type OwnedKittiesList<T> = LinkedList<OwnedKitties<T>, <T as system::Trait>::AccountId, <T as Trait>::KittyIndex>;
 
 decl_storage! {
 	trait Store for Module<T: Trait> as Kitties {
@@ -51,7 +49,8 @@ decl_storage! {
 decl_event!(
 	pub enum Event<T> where
 		<T as system::Trait>::AccountId,
-		<T as Trait>::NFTIndex,
+		<T as Trait>::KittyIndex,
+		Balance = BalanceOf<T>,
 	{
 		//转账事件
         Transfer(Option<AccountId>, Option<AccountId>, NFTIndex),
@@ -82,9 +81,7 @@ decl_module! {
  		pub fn transfer(origin, to: T::AccountId, kitty_id: T::KittyIndex) {
  		    let sender = ensure_signed(origin)?;
 
-			let v: Vec<u8> = Vec::new();
-			v.push(3);
-			<Self as NFTS<_>>::transfer_from(&origin, &to, kitty_id, v)?;			
+			<Self as NFTS<_>>::transfer_from(&origin, &to, kitty_id, Vec![1:3])?;			
 		}
 	}
 }
@@ -94,17 +91,11 @@ fn combine_dna(dna1: u8, dna2: u8, selector: u8) -> u8 {
 }
 
 fn get_mock_uri_dna_data(uri: Vec<u8>)-> [u8; 16]{
-	let mut array: [u8; 3] = [0; 16];
-
-    array[1] = 1;
-    array[2] = 2;
-	array
+	[3: 16]
 }
 
 fn set_mock_uri_dna_data(value: [u8; 16])-> Vec<u8>{
-	let v: Vec<u8> = Vec::new();
-	v.push(3);
-	v
+	Vec![2:3]
 }
 
 
@@ -119,6 +110,35 @@ impl<T: Trait> Module<T> {
 		if kitty_id == T::KittyIndex::max_value() {
 			return Err("Kitties count overflow");
 		}
+		Ok(kitty_id)
+	}
+
+	fn do_breed(sender: &T::AccountId, kitty_id_1: T::KittyIndex, kitty_id_2: T::KittyIndex) -> result::Result<T::KittyIndex, &'static str> {
+		let kitty1 = Self::kitty(kitty_id_1);
+		let kitty2 = Self::kitty(kitty_id_2);
+
+		ensure!(kitty1.is_some(), "Invalid kitty_id_1");
+		ensure!(kitty2.is_some(), "Invalid kitty_id_2");
+		ensure!(kitty_id_1 != kitty_id_2, "Needs different parent");
+		ensure!(Self::kitty_owner(&kitty_id_1).map(|owner| owner == *sender).unwrap_or(false), "Not onwer of kitty1");
+ 		ensure!(Self::kitty_owner(&kitty_id_2).map(|owner| owner == *sender).unwrap_or(false), "Not owner of kitty2");
+
+		let kitty_id = Self::next_kitty_id()?;
+
+		let kitty1_dna = kitty1.unwrap().0;
+		let kitty2_dna = kitty2.unwrap().0;
+
+		// Generate a random 128bit value
+		let selector = Self::random_value(&sender);
+		let mut new_dna = [0u8; 16];
+
+		// Combine parents and selector to create new kitty
+		for i in 0..kitty1_dna.len() {
+			new_dna[i] = combine_dna(kitty1_dna[i], kitty2_dna[i], selector[i]);
+		}
+
+		Self::insert_kitty(sender, kitty_id, Kitty(new_dna));
+
 		Ok(kitty_id)
 	}
 }
@@ -136,7 +156,7 @@ impl<T: Trait> NFTS<T::AccountId, T::NFTIndex> for Module<T> {
     Return:           Result    执行结构
 
     *************************************************/
-    fn transfer_from(from: T::AccountId, to: T::AccountId, token_id: T::NFTIndex, data: Vec<u8>) -> Result<(), &'static str> {
+    fn transfer_from(from: T::AccountId, to: T::AccountId, token_id: T::NFTIndex, data: Vec<u8>) -> Result {
         let owner = match Self::owner_of(token_id) {
             Some(c) => c,
             None => return Err("No owner for this token"),
@@ -171,7 +191,7 @@ impl<T: Trait> NFTS<T::AccountId, T::NFTIndex> for Module<T> {
     Output:
     Return:         Result    执行结果
     *************************************************/
-    fn _approve(origin: T::AccountId, to: T::AccountId, token_id: T::NFTIndex) -> Result<(), &'static str> {
+    fn _approve(origin: T::AccountId, to: T::AccountId, token_id: T::NFTIndex) -> Result {
         
         //Get the Owner of the tokenId
         let  owner_of_token_id = <TokenOwner<T>>::get(token_id);
@@ -201,7 +221,7 @@ impl<T: Trait> NFTS<T::AccountId, T::NFTIndex> for Module<T> {
     Output:
     Return:         Result    执行结果
     *************************************************/
-    fn _set_approval_for_all(origin: T::AccountId, to: T::AccountId, approved: bool) -> Result<(), &'static str> {
+    fn _set_approval_for_all(origin: T::AccountId, to: T::AccountId, approved: bool) -> Result {
         
         // check msg sender 
         ensure!(to!=origin,"You can not set approval for yourself!");
@@ -226,7 +246,7 @@ impl<T: Trait> NFTS<T::AccountId, T::NFTIndex> for Module<T> {
     Output:
     Return:         Result    执行结果
     *************************************************/
-    fn _issue_with_uri(who: &T::AccountId, uri: Vec<u8>) -> Result<(), &'static str> {
+    fn _issue_with_uri(who: &T::AccountId, uri: Vec<u8>) -> Result {
         let token_id = Self::total_supply();
 
         ensure!(!<TokenOwner<T>>::exists(token_id), "Token hash already exists");
@@ -256,7 +276,7 @@ impl<T: Trait> NFTS<T::AccountId, T::NFTIndex> for Module<T> {
     Output:
     Return:         Result    执行结果
     *************************************************/
-    fn _burn(token_id: T::NFTIndex) -> Result<(), &'static str> {
+    fn _burn(token_id: T::NFTIndex) -> Result {
         let owner = match Self::owner_of(token_id) {
             Some(c) => c,
             None => return Err("No owner for this token"),
@@ -283,14 +303,14 @@ impl<T: Trait> NFTS<T::AccountId, T::NFTIndex> for Module<T> {
         Ok(())
     }
 
-    fn _clear_approval(token_id: T::NFTIndex) -> Result<(), &'static str>{
+    fn _clear_approval(token_id: T::NFTIndex) -> Result{
         <TokenApprovals<T>>::remove(token_id);
 
         Ok(())
     }
 
     // below is helper functions
-    fn supply_increase() -> Result<(), &'static str> {
+    fn supply_increase() -> Result {
         let total_supply = Self::total_supply();
 
         // Should never fail since overflow on user balance is checked before this
@@ -303,7 +323,7 @@ impl<T: Trait> NFTS<T::AccountId, T::NFTIndex> for Module<T> {
 
         Ok(())
     }
-    fn supply_decrease() -> Result<(), &'static str> {
+    fn supply_decrease() -> Result {
         let total_supply = Self::total_supply();
 
         // Should never fail because balance of underflow is checked before this
