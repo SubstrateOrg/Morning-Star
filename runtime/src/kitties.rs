@@ -8,6 +8,7 @@ use runtime_io::blake2_128;
 use system::ensure_signed;
 use rstd::result;
 use crate::linked_item::{LinkedList, LinkedItem};
+use crate::nfts::NFTS;
 
 pub trait Trait: system::Trait {
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
@@ -18,24 +19,30 @@ pub trait Trait: system::Trait {
 type BalanceOf<T> = <<T as Trait>::Currency as Currency<<T as system::Trait>::AccountId>>::Balance;
 
 #[derive(Encode, Decode)]
-pub struct Kitty(pub [u8; 16]);
+pub struct Kitty<T: Trait>{
+	pub price : T::Balance, 
+}
 
 type KittyLinkedItem<T> = LinkedItem<<T as Trait>::KittyIndex>;
 type OwnedKittiesList<T> = LinkedList<OwnedKitties<T>, <T as system::Trait>::AccountId, <T as Trait>::KittyIndex>;
 
 decl_storage! {
 	trait Store for Module<T: Trait> as Kitties {
-		/// Stores all the kitties, key is the kitty id / index
-		pub Kitties get(kitty): map T::KittyIndex => Option<Kitty>;
-		/// Stores the total number of kitties. i.e. the next kitty index
-		pub KittiesCount get(kitties_count): T::KittyIndex;
-
-		pub OwnedKitties get(owned_kitties): map (T::AccountId, Option<T::KittyIndex>) => Option<KittyLinkedItem<T>>;
-
-		/// Get kitty owner
-		pub KittyOwners get(kitty_owner): map T::KittyIndex => Option<T::AccountId>;
-		/// Get kitty price. None means not for sale.
-		pub KittyPrices get(kitty_price): map T::KittyIndex => Option<BalanceOf<T>>
+		//某个用户拥有的代币数量
+		OwnedTokensCount get(balance_of): map T::AccountId => T::NFTIndex;
+		//通过代币ID查找用户
+		TokenOwner get(owner_of): map T::NFTIndex => Option<T::AccountId>;
+		//查找代币的授权委托情况
+		TokenApprovals get(get_approved): map T::NFTIndex => Option<T::AccountId>;
+		//查找用户的高级授权情况
+		OperatorApprovals get(is_approved_for_all): map (T::AccountId, T::AccountId) => bool;
+		//当前的代币总量
+		TotalSupply get(total_supply): T::NFTIndex;
+		// token id => token uri
+		// TokenUri get(token_uri): map T::NFTIndex => Option<Vec<u8>>;
+		TokenUri get(token_uri): map T::NFTIndex => Vec<u8>;
+		// Not a part of the ERC721 specification, but recommended to add.
+		Nonce: u64;
 	}
 }
 
@@ -45,14 +52,12 @@ decl_event!(
 		<T as Trait>::KittyIndex,
 		Balance = BalanceOf<T>,
 	{
-		/// A kitty is created. (owner, kitty_id)
-		Created(AccountId, KittyIndex),
-		/// A kitty is transferred. (from, to, kitty_id)
-		Transferred(AccountId, AccountId, KittyIndex),
-		/// A kitty is available for sale. (owner, kitty_id, price)
-		Ask(AccountId, KittyIndex, Option<Balance>),
-		/// A kitty is sold. (from, to, kitty_id, price)
-		Sold(AccountId, AccountId, KittyIndex, Balance),
+		//转账事件
+        Transfer(Option<AccountId>, Option<AccountId>, NFTIndex),
+		//普通授权事件
+        Approval(AccountId, AccountId, NFTIndex),
+		//高级授权事件
+        ApprovalForAll(AccountId, AccountId, bool),
 	}
 );
 
@@ -69,68 +74,14 @@ decl_module! {
 			let dna = Self::random_value(&sender);
 
 			// Create and store kitty
-			let kitty = Kitty(dna);
-			Self::insert_kitty(&sender, kitty_id, kitty);
-
-			Self::deposit_event(RawEvent::Created(sender, kitty_id));
-		}
-
-		/// Breed kitties
-		pub fn breed(origin, kitty_id_1: T::KittyIndex, kitty_id_2: T::KittyIndex) {
-			let sender = ensure_signed(origin)?;
-
-			let new_kitty_id = Self::do_breed(&sender, kitty_id_1, kitty_id_2)?;
-
-			Self::deposit_event(RawEvent::Created(sender, new_kitty_id));
+			<Self as NFTS<_>>::_issue_with_uri(&sender, set_mock_uri_dna_data(dna));
 		}
 
 		/// Transfer a kitty to new owner
  		pub fn transfer(origin, to: T::AccountId, kitty_id: T::KittyIndex) {
- 			let sender = ensure_signed(origin)?;
+ 		    let sender = ensure_signed(origin)?;
 
-  			ensure!(<OwnedKitties<T>>::exists(&(sender.clone(), Some(kitty_id))), "Only owner can transfer kitty");
-
-			Self::do_transfer(&sender, &to, kitty_id);
-
-			Self::deposit_event(RawEvent::Transferred(sender, to, kitty_id));
-		}
-
-		/// Set a price for a kitty for sale
-		/// None to delist the kitty
-		pub fn ask(origin, kitty_id: T::KittyIndex, price: Option<BalanceOf<T>>) {
-			let sender = ensure_signed(origin)?;
-
-			ensure!(<OwnedKitties<T>>::exists(&(sender.clone(), Some(kitty_id))), "Only owner can set price for kitty");
-
-			if let Some(ref price) = price {
-				<KittyPrices<T>>::insert(kitty_id, price);
-			} else {
-				<KittyPrices<T>>::remove(kitty_id);
-			}
-
-			Self::deposit_event(RawEvent::Ask(sender, kitty_id, price));
-		}
-
-		pub fn buy(origin, kitty_id: T::KittyIndex, price: BalanceOf<T>) {
-			let sender = ensure_signed(origin)?;
-
-			let owner = Self::kitty_owner(kitty_id);
-			ensure!(owner.is_some(), "Kitty does not exist");
-			let owner = owner.unwrap();
-
-			let kitty_price = Self::kitty_price(kitty_id);
-			ensure!(kitty_price.is_some(), "Kitty not for sale");
-
-			let kitty_price = kitty_price.unwrap();
-			ensure!(price >= kitty_price, "Price is too low");
-
-			T::Currency::transfer(&sender, &owner, kitty_price)?;
-
-			<KittyPrices<T>>::remove(kitty_id);
-
-			Self::do_transfer(&owner, &sender, kitty_id);
-
-			Self::deposit_event(RawEvent::Sold(owner, sender, kitty_id, kitty_price));
+			<Self as NFTS<_>>::transfer_from(&origin, &to, kitty_id, Vec![1:3])?;			
 		}
 	}
 }
@@ -138,6 +89,15 @@ decl_module! {
 fn combine_dna(dna1: u8, dna2: u8, selector: u8) -> u8 {
 	((selector & dna1) | (!selector & dna2))
 }
+
+fn get_mock_uri_dna_data(uri: Vec<u8>)-> [u8; 16]{
+	[3: 16]
+}
+
+fn set_mock_uri_dna_data(value: [u8; 16])-> Vec<u8>{
+	Vec![2:3]
+}
+
 
 impl<T: Trait> Module<T> {
 	fn random_value(sender: &T::AccountId) -> [u8; 16] {
@@ -151,19 +111,6 @@ impl<T: Trait> Module<T> {
 			return Err("Kitties count overflow");
 		}
 		Ok(kitty_id)
-	}
-
-	fn insert_owned_kitty(owner: &T::AccountId, kitty_id: T::KittyIndex) {
-		<OwnedKittiesList<T>>::append(owner, kitty_id);
-	}
-
-	fn insert_kitty(owner: &T::AccountId, kitty_id: T::KittyIndex, kitty: Kitty) {
-		// Create and store kitty
-		<Kitties<T>>::insert(kitty_id, kitty);
-		<KittiesCount<T>>::put(kitty_id + 1.into());
-		<KittyOwners<T>>::insert(kitty_id, owner.clone());
-
-		Self::insert_owned_kitty(owner, kitty_id);
 	}
 
 	fn do_breed(sender: &T::AccountId, kitty_id_1: T::KittyIndex, kitty_id_2: T::KittyIndex) -> result::Result<T::KittyIndex, &'static str> {
@@ -194,12 +141,201 @@ impl<T: Trait> Module<T> {
 
 		Ok(kitty_id)
 	}
+}
 
-	fn do_transfer(from: &T::AccountId, to: &T::AccountId, kitty_id: T::KittyIndex)  {
- 		<OwnedKittiesList<T>>::remove(&from, kitty_id);
- 		<OwnedKittiesList<T>>::append(&to, kitty_id);
- 		<KittyOwners<T>>::insert(kitty_id, to);
- 	}
+impl<T: Trait> NFTS<T::AccountId, T::NFTIndex> for Module<T> {
+    /*************************************************
+    Function:       // transfer_from转账
+    Description:    // 函数功能、性能等的描述
+    Input:
+                    from  发送代币的用户ID
+                    to    接收代币的用户ID
+                    token_id NFT代币的下标
+                    data     发送函数的附加数据
+    Output:
+    Return:           Result    执行结构
+
+    *************************************************/
+    fn transfer_from(from: T::AccountId, to: T::AccountId, token_id: T::NFTIndex, data: Vec<u8>) -> Result {
+        let owner = match Self::owner_of(token_id) {
+            Some(c) => c,
+            None => return Err("No owner for this token"),
+        };
+
+        ensure!(owner == from, "'from' account does not own this token");
+
+        let balance_of_from = Self::balance_of(&from);
+        let balance_of_to = Self::balance_of(&to);
+
+        let new_balance_of_from = balance_of_from.checked_sub(&1.into())
+            .ok_or("Transfer causes underflow of 'from' token balance")?;
+        let new_balance_of_to = balance_of_to.checked_add(&1.into())
+            .ok_or("Transfer causes overflow of 'to' token balance")?;
+
+        <OwnedTokensCount<T>>::insert(&from, new_balance_of_from);
+        <OwnedTokensCount<T>>::insert(&to, new_balance_of_to);
+        <TokenOwner<T>>::insert(&token_id, &to);
+        Self::_clear_approval(token_id)?;
+
+        Self::deposit_event(RawEvent::Transfer(Some(from), Some(to), token_id));
+        Ok(())
+    }
+
+    /*************************************************
+    Function:       // approve设置普通授权
+    Description:    // 普通授权，是指针对单个代币转账权限的授权，只能同时存在一个，当拥有权限变更时，会清0
+    Input:
+                    origin  设置授权用户ID
+                    to      接收授权用户ID
+                    token_id NFT代币的下标
+    Output:
+    Return:         Result    执行结果
+    *************************************************/
+    fn _approve(origin: T::AccountId, to: T::AccountId, token_id: T::NFTIndex) -> Result {
+        
+        //Get the Owner of the tokenId
+        let  owner_of_token_id = <TokenOwner<T>>::get(token_id);
+        // check msg sender 
+        ensure!(owner_of_token_id!= Some(origin.clone()),"You can not approve the token,Because You did not own it!");
+
+        // check msg sender 
+        ensure!(to!= origin,"You can not set approval for yourself!");
+
+        // Set approved state
+        <TokenApprovals<T>>::insert(token_id, to.clone());
+
+        // deposit event
+        Self::deposit_event(RawEvent::Approval(origin, to, token_id));
+        
+        // Done
+        Ok(())
+    }
+
+    /*************************************************
+    Function:       // set_approval_for_all设置高级授权
+    Description:    // 是指地址对地址的授权，被授权者可以操作授权者的所有代币，包括改变普通的授权。可以同时授权多个地址
+    Input:
+                    origin  设置授权用户ID
+                    to      接收授权用户ID
+                    approved 设置授权标识,true为允许
+    Output:
+    Return:         Result    执行结果
+    *************************************************/
+    fn _set_approval_for_all(origin: T::AccountId, to: T::AccountId, approved: bool) -> Result {
+        
+        // check msg sender 
+        ensure!(to!=origin,"You can not set approval for yourself!");
+
+        // Set approved state
+        <OperatorApprovals<T>>::insert((origin.clone(), to.clone()), approved);
+
+        // deposit event
+        Self::deposit_event(RawEvent::ApprovalForAll(origin, to, approved));
+        
+        // Done
+        Ok(())
+    }
+
+
+    /*************************************************
+    Function:       // issue_with_uri 发行代币
+    Description:
+    Input:
+                    to      接收代币用户ID
+                    uri     代币附加信息uri地址
+    Output:
+    Return:         Result    执行结果
+    *************************************************/
+    fn _issue_with_uri(who: &T::AccountId, uri: Vec<u8>) -> Result {
+        let token_id = Self::total_supply();
+
+        ensure!(!<TokenOwner<T>>::exists(token_id), "Token hash already exists");
+        let balance_of = Self::balance_of(who);
+
+        let new_balance_of = match balance_of.checked_add(&1.into()) {
+            Some(c) => c,
+            None => return Err("Overflow adding a new token to account balance"),
+        };
+
+        Self::supply_increase()?;
+        <TokenUri<T>>::insert(token_id, uri);
+
+        <TokenOwner<T>>::insert(token_id, who);
+        <OwnedTokensCount<T>>::insert(who, new_balance_of);
+        Nonce::mutate(|n| *n += 1);
+        Self::deposit_event(RawEvent::Transfer(None, Some(who.clone()), token_id));
+
+        Ok(())
+    }
+
+    /*************************************************
+    Function:       // burn销毁代币
+    Description:
+    Input:
+                    Index  NFT代币的下标
+    Output:
+    Return:         Result    执行结果
+    *************************************************/
+    fn _burn(token_id: T::NFTIndex) -> Result {
+        let owner = match Self::owner_of(token_id) {
+            Some(c) => c,
+            None => return Err("No owner for this token"),
+        };
+
+        let balance_of = Self::balance_of(&owner);
+
+        let new_balance_of = match balance_of.checked_sub(&1.into()) {
+            Some(c) => c,
+            None => return Err("Underflow subtracting a token to account balance"),
+        };
+
+        Self::supply_decrease()?;
+        <TokenUri<T>>::remove(token_id);
+        
+        Self::_clear_approval(token_id)?;
+
+        <OwnedTokensCount<T>>::insert(&owner, new_balance_of);
+        <TokenOwner<T>>::remove(token_id);
+
+        Nonce::mutate(|n| *n += 1);
+        Self::deposit_event(RawEvent::Transfer(Some(owner), None, token_id));
+
+        Ok(())
+    }
+
+    fn _clear_approval(token_id: T::NFTIndex) -> Result{
+        <TokenApprovals<T>>::remove(token_id);
+
+        Ok(())
+    }
+
+    // below is helper functions
+    fn supply_increase() -> Result {
+        let total_supply = Self::total_supply();
+
+        // Should never fail since overflow on user balance is checked before this
+        let new_total_supply = match total_supply.checked_add(&1.into()) {
+            Some(c) => c,
+            None => return Err("Overflow when adding new token to total supply"),
+        };
+
+        <TotalSupply<T>>::put(new_total_supply);
+
+        Ok(())
+    }
+    fn supply_decrease() -> Result {
+        let total_supply = Self::total_supply();
+
+        // Should never fail because balance of underflow is checked before this
+        let new_total_supply = match total_supply.checked_sub(&1.into()) {
+            Some(c) => c,
+            None => return Err("Underflow removing token from total supply"),
+        };
+
+        <TotalSupply<T>>::put(new_total_supply);
+
+        Ok(())
+    }
 }
 
 /// Tests for Kitties module
