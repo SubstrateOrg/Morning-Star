@@ -153,7 +153,7 @@ impl<T: Trait> NFTS<T::AccountId, T::NFTIndex> for Module<T> {
         ensure!(to!= origin,"You can not set approval for yourself!");
 
         // Set approved state
-        <OperatorApprovals<T>>::insert((origin.clone(), to.clone()), true);
+        <TokenApprovals<T>>::insert(token_id, to.clone());
 
         // deposit event
         Self::deposit_event(RawEvent::Approval(origin, to, token_id));
